@@ -1,0 +1,241 @@
+name: Tests
+
+# PHPUnit is removed from composer.json and managed by Testbench automatically
+# Using Composer 2.2 to avoid security audit blocking (feature added in 2.4+)
+# --with-all-dependencies allows downgrading dependencies as needed
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+    paths:
+      - '**.php'
+      - 'composer.json'
+      - 'phpunit.xml'
+      - 'phpstan.neon'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    branches:
+      - master
+      - develop
+    paths:
+      - '**.php'
+      - 'composer.json'
+      - 'phpunit.xml'
+      - 'phpstan.neon'
+      - '.github/workflows/tests.yml'
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-style:
+    name: Code Style
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Check code style
+        run: vendor/bin/php-cs-fixer fix --dry-run --diff
+
+  phpstan:
+    name: PHPStan Static Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --memory-limit=1G
+
+  test:
+    name: Laravel ${{ matrix.laravel }} - PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.2', '7.3', '7.4', '8.0', '8.1', '8.2', '8.3']
+        laravel: ['5.8.*', '6.*', '7.*', '8.*', '9.*', '10.*', '11.*']
+        stability: [prefer-stable]
+
+        include:
+          # Laravel to Testbench version mapping (Testbench will manage PHPUnit version)
+          - laravel: 11.*
+            testbench: ^9.0
+          - laravel: 10.*
+            testbench: ^8.0
+          - laravel: 9.*
+            testbench: ^7.0
+          - laravel: 8.*
+            testbench: ^6.0
+          - laravel: 7.*
+            testbench: ^5.0
+          - laravel: 6.*
+            testbench: ^4.0
+          - laravel: 5.8.*
+            testbench: ^3.8
+
+        exclude:
+          # Laravel 11.x requires PHP 8.2+ (excluding incompatible PHP < 8.2)
+          - laravel: 11.*
+            php: '7.2'
+          - laravel: 11.*
+            php: '7.3'
+          - laravel: 11.*
+            php: '7.4'
+          - laravel: 11.*
+            php: '8.0'
+          - laravel: 11.*
+            php: '8.1'
+
+          # Laravel 10.x requires PHP 8.1+ (excluding incompatible PHP < 8.1)
+          - laravel: 10.*
+            php: '7.2'
+          - laravel: 10.*
+            php: '7.3'
+          - laravel: 10.*
+            php: '7.4'
+          - laravel: 10.*
+            php: '8.0'
+
+          # Laravel 9.x requires PHP 8.0+ (excluding incompatible PHP < 8.0)
+          - laravel: 9.*
+            php: '7.2'
+          - laravel: 9.*
+            php: '7.3'
+          - laravel: 9.*
+            php: '7.4'
+
+          # Laravel 8.x supports PHP 7.3-8.1 (excluding PHP 7.2 and 8.2+)
+          - laravel: 8.*
+            php: '7.2'
+          - laravel: 8.*
+            php: '8.2'
+          - laravel: 8.*
+            php: '8.3'
+
+          # Laravel 7.x supports PHP 7.2-8.1 (excluding PHP 8.2+)
+          - laravel: 7.*
+            php: '8.2'
+          - laravel: 7.*
+            php: '8.3'
+
+          # Laravel 6.x supports PHP 7.2-8.1 (excluding PHP 8.2+)
+          - laravel: 6.*
+            php: '8.2'
+          - laravel: 6.*
+            php: '8.3'
+
+          # Laravel 5.8.x supports PHP 7.2-7.4 (excluding PHP 8.0+)
+          - laravel: 5.8.*
+            php: '8.0'
+          - laravel: 5.8.*
+            php: '8.1'
+          - laravel: 5.8.*
+            php: '8.2'
+          - laravel: 5.8.*
+            php: '8.3'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:2.2
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ hashFiles('**/composer.json') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-php${{ matrix.php }}-laravel${{ matrix.laravel }}-
+            ${{ runner.os }}-composer-php${{ matrix.php }}-
+            ${{ runner.os }}-composer-
+
+      - name: Remove composer.lock
+        run: rm -f composer.lock
+
+      - name: Remove PHPUnit and PHPStan requirements from composer.json
+        run: |
+          composer remove phpunit/phpunit --dev --no-update --no-interaction
+          composer remove phpstan/phpstan --dev --no-update --no-interaction
+
+      - name: Install dependencies
+        run: |
+          composer require "laravel/framework:${{ matrix.laravel }}" \
+            "orchestra/testbench:${{ matrix.testbench }}" \
+            --dev --no-interaction --no-update
+          composer update --${{ matrix.stability }} --prefer-dist --no-interaction --with-all-dependencies
+
+      - name: Add PHPUnit problem matcher
+        run: echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
+
+      - name: Execute tests
+        run: vendor/bin/phpunit
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.3
+          coverage: xdebug
+
+      - name: Install dependencies
+        run: composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Generate coverage report
+        run: vendor/bin/phpunit --coverage-clover=coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false
