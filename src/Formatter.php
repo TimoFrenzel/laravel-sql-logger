@@ -6,7 +6,8 @@ use Carbon\Carbon;
 use Illuminate\Container\Container;
 use Mnabialek\LaravelSqlLogger\Objects\Concerns\ReplacesBindings;
 use Mnabialek\LaravelSqlLogger\Objects\SqlQuery;
-
+use Illuminate\Database\Query\Expression;
+use Illuminate\Database\Connection;
 class Formatter
 {
     use ReplacesBindings;
@@ -89,7 +90,46 @@ class Formatter
      */
     protected function queryLine(SqlQuery $query)
     {
-        return $this->format($query->get()) . ';';
+        $sql = $query->get();
+
+        // Normalize non-string SQL (e.g. DB::raw() / Expression)
+        $sql = $this->normalizeSql($sql);
+
+        return $this->format($sql) . ';';
+    }
+
+    /**
+     * Normalize SQL to string (handles Expression/objects).
+     *
+     * @param mixed $sql
+     * @return string
+     */
+    protected function normalizeSql($sql): string
+    {
+        if (is_string($sql)) {
+            return $sql;
+        }
+
+        // Laravel Expression (e.g. DB::raw($sql))
+        if ($sql instanceof \Illuminate\Database\Query\Expression) {
+            // Try to get grammar from current default connection if possible
+            try {
+                /** @var \Illuminate\Database\Connection $conn */
+                $conn = $this->app['db']->connection();
+                return (string) $sql->getValue($conn->getQueryGrammar());
+            } catch (\Throwable $e) {
+                // Best-effort fallback
+                return method_exists($sql, 'getValue') ? (string) $sql->getValue() : '[Expression]';
+            }
+        }
+
+        // Stringable objects
+        if (is_object($sql) && method_exists($sql, '__toString')) {
+            return (string) $sql;
+        }
+
+        // Last resort: avoid fatal conversion
+        return is_scalar($sql) ? (string) $sql : '[NonStringSql:' . gettype($sql) . ']';
     }
 
     /**
