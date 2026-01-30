@@ -38,6 +38,11 @@ class Query
             $bindings = $query->bindings;
             $time = $query->time;
             $query = $query->sql;
+
+            if ($query instanceof \Illuminate\Database\Query\Expression) {
+                $conn = app('db')->connection();
+                $query = (string) $query->getValue($conn->getQueryGrammar());
+            }
         }
 
         return new SqlQuery($number, $query, $time, $bindings, $caller);
