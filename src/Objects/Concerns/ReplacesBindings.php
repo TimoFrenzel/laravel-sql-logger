@@ -43,13 +43,32 @@ trait ReplacesBindings
             return (int) $value;
         }
 
+        if ($value instanceof \Illuminate\Database\Query\Expression) {
+            try {
+                $conn = app('db')->connection();
+                return (string) $value->getValue($conn->getQueryGrammar());
+            } catch (\Throwable $e) {
+                return "'[Expression]'";
+            }
+        }
+
         if (is_object($value) && ! method_exists($value, '__toString')) {
             return "'[Object]'";
         }
 
-        $value = is_object($value) ? (string) $value : $value;
+        if (is_object($value)) {
+            $value = (string) $value;
+        }
 
-        return is_numeric($value) ? $value : "'" . $value . "'";
+        // ints/floats remain unquoted; numeric strings stay quoted (safer in logs)
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        // escape single quotes for log output
+        $value = str_replace("'", "\\'", (string) $value);
+
+        return "'" . $value . "'";
     }
 
     /**
@@ -77,19 +96,25 @@ trait ReplacesBindings
      */
     protected function formatBindings($bindings)
     {
+        $conn = null;
+        $grammar = null;
+
         foreach ($bindings as $key => $binding) {
 
             if ($binding instanceof \Illuminate\Database\Query\Expression) {
                 try {
-                    $conn = app('db')->connection();
-                    $bindings[$key] = (string) $binding->getValue($conn->getQueryGrammar());
+                    if ($conn === null) {
+                        $conn = app('db')->connection();
+                        $grammar = $conn->getQueryGrammar();
+                    }
+                    $bindings[$key] = (string) $binding->getValue($grammar);
                 } catch (\Throwable $e) {
                     $bindings[$key] = '[Expression]';
                 }
                 continue;
             }
 
-            if ($binding instanceof DateTimeInterface) {
+            if ($binding instanceof \DateTimeInterface) {
                 $bindings[$key] = $binding->format('Y-m-d H:i:s');
                 continue;
             }
@@ -110,6 +135,7 @@ trait ReplacesBindings
             }
 
             if (is_string($binding)) {
+                // minimal escaping for logger output
                 $bindings[$key] = str_replace("'", "\\'", $binding);
                 continue;
             }
