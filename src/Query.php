@@ -40,8 +40,12 @@ class Query
             $query = $query->sql;
 
             if ($query instanceof \Illuminate\Database\Query\Expression) {
-                $conn = app('db')->connection();
-                $query = (string) $query->getValue($conn->getQueryGrammar());
+                try {
+                    $conn = app('db')->connection();
+                    $query = (string) $query->getValue($conn->getQueryGrammar());
+                } catch (\Throwable $e) {
+                    $query = '[Expression]';
+                }
             }
         }
 
