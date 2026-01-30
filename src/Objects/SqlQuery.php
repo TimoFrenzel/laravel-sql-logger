@@ -42,7 +42,7 @@ class SqlQuery
      * @param float $time
      * @param string|null $caller
      */
-    public function __construct($number, $sql, array $bindings = null, $time, $caller = null)
+    public function __construct($number, $sql, $time, $bindings = null, $caller = null)
     {
         $this->number = $number;
         $this->sql = $sql;
