@@ -43,6 +43,12 @@ trait ReplacesBindings
             return (int) $value;
         }
 
+        if (is_object($value) && ! method_exists($value, '__toString')) {
+            return "'[Object]'";
+        }
+
+        $value = is_object($value) ? (string) $value : $value;
+
         return is_numeric($value) ? $value : "'" . $value . "'";
     }
 
@@ -72,15 +78,46 @@ trait ReplacesBindings
     protected function formatBindings($bindings)
     {
         foreach ($bindings as $key => $binding) {
+
+            if ($binding instanceof \Illuminate\Database\Query\Expression) {
+                try {
+                    $conn = app('db')->connection();
+                    $bindings[$key] = (string) $binding->getValue($conn->getQueryGrammar());
+                } catch (\Throwable $e) {
+                    $bindings[$key] = '[Expression]';
+                }
+                continue;
+            }
+
             if ($binding instanceof DateTimeInterface) {
                 $bindings[$key] = $binding->format('Y-m-d H:i:s');
-            } elseif (is_string($binding)) {
+                continue;
+            }
+
+            if ($binding instanceof \BackedEnum) {
+                $bindings[$key] = $binding->value;
+                continue;
+            }
+
+            if (is_array($binding)) {
+                $bindings[$key] = json_encode($binding, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                continue;
+            }
+
+            if (is_object($binding) && method_exists($binding, '__toString')) {
+                $bindings[$key] = (string) $binding;
+                continue;
+            }
+
+            if (is_string($binding)) {
                 $bindings[$key] = str_replace("'", "\\'", $binding);
+                continue;
             }
         }
 
         return $bindings;
     }
+
 
     /**
      * Get regex to be used to replace bindings.

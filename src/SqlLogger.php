@@ -59,7 +59,7 @@ class SqlLogger
         try {
             $sqlQuery = $this->query->get($this->queryNumber, $query, $bindings, $time, $caller);
             $this->writer->save($sqlQuery);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->app['log']->notice("Cannot log query nr {$this->queryNumber}. Exception:" . PHP_EOL . $e);
         }
     }
